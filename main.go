@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"strings"
+	"errors"
 )
 
 const conferenceTickets int = 50
@@ -11,7 +13,6 @@ const conferenceTickets int = 50
 var conferenceName = "Go Conference"
 var remainingTickets uint = 50
 var bookings = make([]UserData, 0)
-var mu sync.Mutex // Mutex to ensure thread-safe access to shared resources
 
 type UserData struct {
 	firstName       string
@@ -20,60 +21,82 @@ type UserData struct {
 	numberOfTickets uint
 }
 
-var wg = sync.WaitGroup{}
+// Mutex to handle concurrent access to shared resources
+var mu sync.Mutex
+var wg sync.WaitGroup{}
 
 func main() {
 	greetUsers()
 
 	for {
-		firstName, lastName, email, userTickets, err := getUserInput()
-		if err != nil {
-			fmt.Printf("Error: %v. Please try again.\n", err)
-			continue
-		}
+		fmt.Println("Do you want to book a ticket or cancel an existing booking? (book/cancel):")
+		var action string
+		fmt.Scan(&action)
 
-		isValidName, isValidEmail, isValidTicketNumber := validateUserInput(firstName, lastName, email, userTickets)
+		if action == "book" {
+			// Get user input for booking
+			firstName, lastName, email, userTickets, err := getUserInput()
+			if err != nil {
+				fmt.Printf("Error: %v. Please try again.\n", err)
+				continue
+			}
 
-		if isValidName && isValidEmail && isValidTicketNumber {
-			bookTicket(userTickets, firstName, lastName, email)
+			isValidName, isValidEmail, isValidTicketNumber := validateUserInput(firstName, lastName, email, userTickets)
 
-			wg.Add(1)
-			go sendTicket(userTickets, firstName, lastName, email)
+			if isValidName && isValidEmail && isValidTicketNumber {
+				bookTicket(userTickets, firstName, lastName, email)
 
-			firstNames := getFirstNames()
-			fmt.Printf("The first names of bookings are: %v\n", firstNames)
+				wg.Add(1)
+				go sendTicket(userTickets, firstName, lastName, email)
 
-			if remainingTickets == 0 {
-				fmt.Println("Our conference is booked out. Come back next year.")
-				break
+				firstNames := getFirstNames()
+				fmt.Printf("The first names of bookings are: %v\n", firstNames)
+
+				if remainingTickets == 0 {
+					fmt.Println("Our conference is booked out. Come back next year.")
+					break
+				}
+			} else {
+				if !isValidName {
+					fmt.Println("First name or last name is too short.")
+				}
+				if !isValidEmail {
+					fmt.Println("Email address is invalid.")
+				}
+				if !isValidTicketNumber {
+					fmt.Println("Number of tickets is invalid.")
+				}
+			}
+		} else if action == "cancel" {
+			// Get user input for cancellation
+			fmt.Println("Enter your email address to cancel the booking: ")
+			var email string
+			fmt.Scan(&email)
+
+			fmt.Println("Enter number of tickets to cancel: ")
+			var userTickets uint
+			fmt.Scan(&userTickets)
+
+			err := cancelBooking(email, userTickets)
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
 			}
 		} else {
-			if !isValidName {
-				fmt.Println("First name or last name you entered is too short.")
-			}
-			if !isValidEmail {
-				fmt.Println("Email address you entered doesn't contain @ sign.")
-			}
-			if !isValidTicketNumber {
-				fmt.Println("Number of tickets you entered is invalid.")
-			}
+			fmt.Println("Invalid action. Please choose 'book' or 'cancel'.")
 		}
 	}
 	wg.Wait()
 }
 
-// greetUsers prints a welcome message and ticket availability
+// greetUsers prints a welcome message and ticket information
 func greetUsers() {
 	fmt.Printf("Welcome to %v booking application\n", conferenceName)
 	fmt.Printf("We have a total of %v tickets and %v are still available.\n", conferenceTickets, remainingTickets)
-	fmt.Println("Get your tickets here to attend")
+	fmt.Println("Get your tickets here to attend.")
 }
 
 // getFirstNames returns a list of first names from the bookings
 func getFirstNames() []string {
-	mu.Lock()         // Lock the mutex before accessing shared resources
-	defer mu.Unlock() // Unlock the mutex after accessing shared resources
-
 	firstNames := []string{}
 	for _, booking := range bookings {
 		firstNames = append(firstNames, booking.firstName)
@@ -81,40 +104,41 @@ func getFirstNames() []string {
 	return firstNames
 }
 
-// getUserInput collects and validates user input with error handling
+// getUserInput collects input from the user and validates it
 func getUserInput() (string, string, string, uint, error) {
-	var firstName string
-	var lastName string
-	var email string
+	var firstName, lastName, email string
 	var userTickets uint
 
 	fmt.Println("Enter your first name: ")
-	if _, err := fmt.Scan(&firstName); err != nil || firstName == "" {
-		return "", "", "", 0, fmt.Errorf("invalid input for first name: %v", err)
-	}
+	fmt.Scan(&firstName)
 
 	fmt.Println("Enter your last name: ")
-	if _, err := fmt.Scan(&lastName); err != nil || lastName == "" {
-		return "", "", "", 0, fmt.Errorf("invalid input for last name: %v", err)
-	}
+	fmt.Scan(&lastName)
 
 	fmt.Println("Enter your email address: ")
-	if _, err := fmt.Scan(&email); err != nil || email == "" {
-		return "", "", "", 0, fmt.Errorf("invalid input for email: %v", err)
-	}
+	fmt.Scan(&email)
 
 	fmt.Println("Enter number of tickets: ")
-	if _, err := fmt.Scan(&userTickets); err != nil || userTickets == 0 {
-		return "", "", "", 0, fmt.Errorf("invalid input for number of tickets: %v", err)
+	fmt.Scan(&userTickets)
+
+	// Simple validation
+	if len(firstName) < 2 || len(lastName) < 2 {
+		return "", "", "", 0, errors.New("first name or last name is too short")
+	}
+	if !strings.Contains(email, "@") {
+		return "", "", "", 0, errors.New("email address is invalid")
+	}
+	if userTickets <= 0 || userTickets > remainingTickets {
+		return "", "", "", 0, errors.New("number of tickets is invalid")
 	}
 
 	return firstName, lastName, email, userTickets, nil
 }
 
-// bookTicket updates the remaining tickets and records the booking
+// bookTicket processes the booking and updates ticket information
 func bookTicket(userTickets uint, firstName string, lastName string, email string) {
-	mu.Lock()         // Lock the mutex before modifying shared resources
-	defer mu.Unlock() // Unlock the mutex after modifying shared resources
+	mu.Lock() // Lock before modifying shared resources
+	defer mu.Unlock() // Unlock after modifying shared resources
 
 	remainingTickets -= userTickets
 
@@ -126,18 +150,34 @@ func bookTicket(userTickets uint, firstName string, lastName string, email strin
 	}
 
 	bookings = append(bookings, userData)
-	fmt.Printf("List of bookings is %v\n", bookings)
+	fmt.Printf("List of bookings: %v\n", bookings)
 
 	fmt.Printf("Thank you %v %v for booking %v tickets. You will receive a confirmation email at %v\n", firstName, lastName, userTickets, email)
 	fmt.Printf("%v tickets remaining for %v\n", remainingTickets, conferenceName)
 }
 
-// sendTicket simulates sending a ticket via email
+// sendTicket simulates sending a ticket to the user via email
 func sendTicket(userTickets uint, firstName string, lastName string, email string) {
-	time.Sleep(10 * time.Second) // Simulate delay for sending ticket
+	time.Sleep(50 * time.Second)
 	var ticket = fmt.Sprintf("%v tickets for %v %v", userTickets, firstName, lastName)
 	fmt.Println("#################")
 	fmt.Printf("Sending ticket:\n %v \nto email address %v\n", ticket, email)
 	fmt.Println("#################")
 	wg.Done()
+}
+
+// cancelBooking processes the cancellation of a booking and updates ticket information
+func cancelBooking(email string, userTickets uint) error {
+	mu.Lock() // Lock before modifying shared resources
+	defer mu.Unlock() // Unlock after modifying shared resources
+
+	for i, booking := range bookings {
+		if booking.email == email && booking.numberOfTickets == userTickets {
+			remainingTickets += userTickets
+			bookings = append(bookings[:i], bookings[i+1:]...) // Remove the booking
+			fmt.Printf("Booking for %v %v has been canceled. %v tickets have been refunded.\n", booking.firstName, booking.lastName, userTickets)
+			return nil
+		}
+	}
+	return fmt.Errorf("no matching booking found for the email: %v", email)
 }
