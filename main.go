@@ -1,11 +1,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
-	"strings"
-	"errors"
 )
 
 const conferenceTickets int = 50
@@ -21,9 +21,9 @@ type UserData struct {
 	numberOfTickets uint
 }
 
-// Mutex to handle concurrent access to shared resources
+// Declare WaitGroup
+var wg sync.WaitGroup
 var mu sync.Mutex
-var wg sync.WaitGroup{}
 
 func main() {
 	greetUsers()
@@ -46,6 +46,7 @@ func main() {
 			if isValidName && isValidEmail && isValidTicketNumber {
 				bookTicket(userTickets, firstName, lastName, email)
 
+				// Add to WaitGroup before starting the goroutine
 				wg.Add(1)
 				go sendTicket(userTickets, firstName, lastName, email)
 
@@ -85,17 +86,16 @@ func main() {
 			fmt.Println("Invalid action. Please choose 'book' or 'cancel'.")
 		}
 	}
+	// Wait for all goroutines to complete
 	wg.Wait()
 }
 
-// greetUsers prints a welcome message and ticket information
 func greetUsers() {
 	fmt.Printf("Welcome to %v booking application\n", conferenceName)
 	fmt.Printf("We have a total of %v tickets and %v are still available.\n", conferenceTickets, remainingTickets)
 	fmt.Println("Get your tickets here to attend.")
 }
 
-// getFirstNames returns a list of first names from the bookings
 func getFirstNames() []string {
 	firstNames := []string{}
 	for _, booking := range bookings {
@@ -104,7 +104,6 @@ func getFirstNames() []string {
 	return firstNames
 }
 
-// getUserInput collects input from the user and validates it
 func getUserInput() (string, string, string, uint, error) {
 	var firstName, lastName, email string
 	var userTickets uint
@@ -135,9 +134,8 @@ func getUserInput() (string, string, string, uint, error) {
 	return firstName, lastName, email, userTickets, nil
 }
 
-// bookTicket processes the booking and updates ticket information
 func bookTicket(userTickets uint, firstName string, lastName string, email string) {
-	mu.Lock() // Lock before modifying shared resources
+	mu.Lock()         // Lock before modifying shared resources
 	defer mu.Unlock() // Unlock after modifying shared resources
 
 	remainingTickets -= userTickets
@@ -156,19 +154,17 @@ func bookTicket(userTickets uint, firstName string, lastName string, email strin
 	fmt.Printf("%v tickets remaining for %v\n", remainingTickets, conferenceName)
 }
 
-// sendTicket simulates sending a ticket to the user via email
 func sendTicket(userTickets uint, firstName string, lastName string, email string) {
+	defer wg.Done() // Ensure Done is called when the goroutine exits
 	time.Sleep(50 * time.Second)
 	var ticket = fmt.Sprintf("%v tickets for %v %v", userTickets, firstName, lastName)
 	fmt.Println("#################")
 	fmt.Printf("Sending ticket:\n %v \nto email address %v\n", ticket, email)
 	fmt.Println("#################")
-	wg.Done()
 }
 
-// cancelBooking processes the cancellation of a booking and updates ticket information
 func cancelBooking(email string, userTickets uint) error {
-	mu.Lock() // Lock before modifying shared resources
+	mu.Lock()         // Lock before modifying shared resources
 	defer mu.Unlock() // Unlock after modifying shared resources
 
 	for i, booking := range bookings {
