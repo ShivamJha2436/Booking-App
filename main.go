@@ -1,4 +1,4 @@
-package main
+package Booking_App
 
 import (
 	"errors"
